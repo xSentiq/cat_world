@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cats Admin</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:900px;margin:0 auto;padding:16px;background:#fafafa;color:#222}
+  button,select,input{font:inherit;padding:8px 12px;margin:4px 0}
+  button{border:0;border-radius:8px;background:#222;color:#fff;cursor:pointer}
+  table{width:100%;border-collapse:collapse;background:#fff}
+  td,th{padding:8px;border-bottom:1px solid #eee;text-align:left;vertical-align:top}
+  img{width:90px;height:90px;object-fit:cover;border-radius:8px}
+  .cm{font-size:.85rem;margin:4px 0} .x{background:#c33;padding:2px 8px;margin-left:6px}
+  .wrap{overflow-x:auto}
+</style>
+</head>
+<body>
+<h1>🐱 Cats Admin</h1>
+<div id="login">
+  <input id="email" type="email" placeholder="Email"><br>
+  <input id="pw" type="password" placeholder="Password"><br>
+  <button id="go">Log in</button> <span id="err" style="color:#c33"></span>
+</div>
+<div id="app" hidden>
+  <label>Sort by
+    <select id="sort">
+      <option value="likes">Most likes</option>
+      <option value="dislikes">Most dislikes</option>
+      <option value="comment_count">Most comments</option>
+      <option value="score">Best score (likes − dislikes)</option>
+    </select>
+  </label>
+  <button id="out">Log out</button>
+  <div class="wrap"><table>
+    <thead><tr><th>Cat</th><th>👍</th><th>👎</th><th>Score</th><th>Comments</th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ---- CONFIG: same values as in index.html ----
+const SUPABASE_URL = "https://pllihkdrfnvriexwbdst.supabase.co";
+const SUPABASE_KEY = "sb_publishable_qoQt9Ndae4oFy4TS8md1Iw_JMtY2BCH";
+// ----------------------------------------------
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function load() {
+  const [{ data: stats }, { data: cs }] = await Promise.all([
+    db.from("cat_stats").select("*"),
+    db.from("comments").select("id,cat_id,author,body").order("created_at")
+  ]);
+  const by = {};
+  (cs || []).forEach(c => (by[c.cat_id] = by[c.cat_id] || []).push(c));
+  const rows = (stats || []).map(s => ({ ...s, score: s.likes - s.dislikes }));
+  const k = $("sort").value;
+  rows.sort((a, b) => b[k] - a[k]);
+  $("rows").innerHTML = rows.map(r => `<tr>
+    <td><a href="https://cataas.com/cat/${r.cat_id}" target="_blank"><img loading="lazy" src="https://cataas.com/cat/${r.cat_id}"></a></td>
+    <td>${r.likes}</td><td>${r.dislikes}</td><td>${r.score}</td>
+    <td>${r.comment_count}${(by[r.cat_id] || []).map(c =>
+      `<div class="cm"><b>${esc(c.author)}:</b> ${esc(c.body)}<button class="x" data-id="${c.id}">✕</button></div>`).join("")}</td>
+  </tr>`).join("");
+}
+
+async function show() {
+  const { data } = await db.auth.getSession();
+  $("login").hidden = !!data.session; $("app").hidden = !data.session;
+  if (data.session) load();
+}
+
+$("go").onclick = async () => {
+  const { error } = await db.auth.signInWithPassword({ email: $("email").value, password: $("pw").value });
+  $("err").textContent = error ? error.message : ""; show();
+};
+$("out").onclick = async () => { await db.auth.signOut(); show(); };
+$("sort").onchange = load;
+$("rows").onclick = async e => {
+  const id = e.target.dataset.id;
+  if (id && confirm("Delete this comment?")) { await db.from("comments").delete().eq("id", id); load(); }
+};
+show();
+</script>
+</body>
+</html>
